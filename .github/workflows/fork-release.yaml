@@ -1,0 +1,17 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Fork Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    uses: idelchi/devenv/.github/workflows/gorelease.yml@main
+    permissions:
+      contents: write
+    with:
+      version: "1.27.1"
+      config: .goreleaser.fork.yaml
