@@ -873,6 +873,99 @@ func TestRun_Diff_OneSidedFailureSuppressed(t *testing.T) {
 	}
 }
 
+func TestRun_Diff_OneSidedSkipSuppressed(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		orig       string
+		current    string
+		other      bool
+		wantSide   string
+		wantRemove bool
+	}{
+		{name: "current skipped", orig: "local", current: "skipped", wantSide: "current"},
+		{name: "orig skipped", orig: "skipped", current: "local", wantSide: "orig"},
+		{name: "unrelated change", orig: "local", current: "skipped", other: true, wantSide: "current"},
+		{name: "release removed", orig: "local", current: "absent", wantRemove: true},
+		{name: "unchanged", orig: "local", current: "local"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			write := func(source, message string) string {
+				path := writeFixture(t)
+				testutil.WriteFile(t, path, "flux/source.yaml", `apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata: {name: flux-system, namespace: flux-system}
+spec: {url: https://example.test/cluster.git}
+`)
+				testutil.WriteFile(t, path, "charts/demo/Chart.yaml", "apiVersion: v2\nname: demo\nversion: 0.1.0\n")
+				testutil.WriteFile(t, path, "charts/demo/templates/configmap.yaml", `apiVersion: v1
+kind: ConfigMap
+metadata: {name: '{{ .Release.Name }}', namespace: apps}
+data:
+  greeting: {{ .Values.greeting }}
+`)
+				chart := `  chart:
+    spec:
+      chart: charts/demo
+      sourceRef: {kind: GitRepository, name: flux-system, namespace: flux-system}
+`
+				if tc.other {
+					testutil.WriteFile(t, path, "flux/other.yaml", `apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: other, namespace: apps}
+spec:
+`+chart+`  values: {greeting: `+message+`}
+`)
+				}
+				if source == "skipped" {
+					testutil.WriteFile(t, path, "flux/oci.yaml", `apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: private-chart, namespace: apps}
+spec:
+  url: oci://example.invalid/private/chart
+  certSecretRef: {name: missing-ca}
+`)
+					chart = "  chartRef: {kind: OCIRepository, name: private-chart}\n"
+				}
+				if source != "absent" {
+					testutil.WriteFile(t, path, "flux/hr.yaml", `apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: demo, namespace: apps}
+spec:
+`+chart+"  values: {greeting: hello}\n")
+				}
+				return path
+			}
+			orig := write(tc.orig, "before")
+			current := write(tc.current, "after")
+			stdout, stderr, code := runCLI(t, "diff", "hr", "--path", current, "--path-orig", orig,
+				"--allow-missing-secrets", "--output", "diff", "--no-progress")
+			if code != 0 {
+				t.Fatalf("diff hr exited %d: stderr=%s", code, stderr)
+			}
+			if tc.wantSide != "" {
+				prefix := "# HelmRelease apps/demo: 1 object not rendered on the " + tc.wantSide + " side; diff suppressed ("
+				if !strings.HasPrefix(stdout, prefix) || !strings.Contains(stdout, "missing-ca") {
+					t.Errorf("expected suppression with the missing Secret reason; got:\n%s", stdout)
+				}
+				if strings.Contains(stdout, "ConfigMap apps/demo") {
+					t.Errorf("skipped release must not appear as added or removed:\n%s", stdout)
+				}
+			} else if strings.Contains(stdout, "diff suppressed") {
+				t.Errorf("a complete comparison must not be suppressed:\n%s", stdout)
+			}
+			if tc.wantRemove && !strings.Contains(stdout, "-  greeting: hello") {
+				t.Errorf("actual release removal must remain visible:\n%s", stdout)
+			}
+			if tc.other && (!strings.Contains(stdout, "-  greeting: before") || !strings.Contains(stdout, "+  greeting: after")) {
+				t.Errorf("unrelated change must remain visible:\n%s", stdout)
+			}
+			if tc.orig == tc.current && stdout != "" {
+				t.Errorf("unchanged releases should produce no diff; got:\n%s", stdout)
+			}
+		})
+	}
+}
+
 // TestKrmignoreFlag_OverridesScanRootIgnore exercises --krmignore end to
 // end: the named file replaces <path>/.krmignore for the scan, and a
 // file that doesn't exist fails the run rather than rendering unfiltered.
