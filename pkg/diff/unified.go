@@ -38,7 +38,7 @@ func renderUnified(left, right []Doc, opts Options) ([]byte, error) {
 		b.WriteString(body)
 		first = false
 	}
-	return withHeader(suppressionHeader(opts, notePrefix(FormatDiff)), b.Bytes()), nil
+	return withHeader(notesHeader(opts, notePrefix(FormatDiff)), b.Bytes()), nil
 }
 
 // unifiedBody renders a standard unified diff (`diff -u` / `git diff`

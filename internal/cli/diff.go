@@ -177,6 +177,8 @@ func runDiff(cmd *cobra.Command, c *commonFlags, h *helmFlags, d *diffFlags, kin
 	var suppressed []diff.Suppression
 	origDocs, currentDocs, suppressed = diff.SuppressFailed(origDocs, currentDocs,
 		failureReasons(origFailed), failureReasons(currentFailed))
+	notes := omittedValuesNotes(orig, c, kind, name, diff.SideOrig)
+	notes = append(notes, omittedValuesNotes(current, c, kind, name, diff.SideCurrent)...)
 
 	out := diff.Format(c.output)
 	formatted, err := diff.RenderDocs(origDocs, currentDocs, diff.Options{
@@ -184,6 +186,7 @@ func runDiff(cmd *cobra.Command, c *commonFlags, h *helmFlags, d *diffFlags, kin
 		StripFields: d.stripFields,
 		Format:      out,
 		Suppressed:  suppressed,
+		Notes:       notes,
 	})
 	if err != nil {
 		return errors.Join(err, diffRunErr)
@@ -208,6 +211,24 @@ func failureReasons(failed map[manifest.NamedResource]store.StatusInfo) map[mani
 	out := make(map[manifest.NamedResource]string, len(failed))
 	for id, info := range failed {
 		out[id] = info.Message
+	}
+	return out
+}
+
+func omittedValuesNotes(tree diffSide, c *commonFlags, kind, name string, side diff.Side) []string {
+	var out []string
+	for _, w := range scopedWarnings(tree.O, tree.Res, c) {
+		if w.Category != manifest.WarnOmittedValues {
+			continue
+		}
+		if kind != "" && w.Resource.Kind != kind {
+			continue
+		}
+		if name != "" && w.Resource.Name != name {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s %s: incomplete comparison on the %s side (%s)",
+			w.Resource.Kind, w.Resource.NamespacedName(), side, w.Message))
 	}
 	return out
 }

@@ -104,17 +104,28 @@ func SuppressFailed(left, right []Doc, leftFailed, rightFailed map[manifest.Name
 	return l, r, suppressed
 }
 
-// suppressionHeader renders opts.Suppressed as a leading block, one prefixed
-// line per entry, so the reader meets the explanation before any body. Empty
-// when nothing was suppressed.
-func suppressionHeader(opts Options, prefix string) []byte {
-	if len(opts.Suppressed) == 0 {
+func (opts Options) notes() []string {
+	out := make([]string, 0, len(opts.Suppressed)+len(opts.Notes))
+	for _, s := range opts.Suppressed {
+		out = append(out, s.String())
+	}
+	for _, note := range opts.Notes {
+		out = append(out, strings.Join(strings.Fields(note), " "))
+	}
+	return out
+}
+
+// notesHeader renders suppressions and advisories as a leading block, one
+// prefixed line per entry. Empty when there are no notes.
+func notesHeader(opts Options, prefix string) []byte {
+	notes := opts.notes()
+	if len(notes) == 0 {
 		return nil
 	}
 	var b strings.Builder
-	for _, s := range opts.Suppressed {
+	for _, note := range notes {
 		b.WriteString(prefix)
-		b.WriteString(s.String())
+		b.WriteString(note)
 		b.WriteByte('\n')
 	}
 	return []byte(b.String())
@@ -135,7 +146,7 @@ func withHeader(header, body []byte) []byte {
 	return append(out, body...)
 }
 
-// notePrefix is the line marker a style uses for the suppression header:
+// notePrefix is the line marker a style uses for the leading notes:
 // the diff-syntax styles reuse their change marker so a ```diff fence
 // highlights the note; the human styles get a plain warning glyph.
 func notePrefix(f Format) string {

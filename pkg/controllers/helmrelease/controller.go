@@ -197,7 +197,7 @@ func (c *Controller) reconcile(ctx context.Context, hr *manifest.HelmRelease) er
 		return err
 	}
 
-	hr, err := c.resolvePreRenderValuesFrom(ctx, id, hr)
+	hr, omitted, err := c.resolvePreRenderValuesFrom(ctx, id, hr)
 	if err != nil {
 		return err
 	}
@@ -259,6 +259,9 @@ func (c *Controller) reconcile(ctx context.Context, hr *manifest.HelmRelease) er
 	if handled, err := c.FingerprintDedup(id, fp, func(docs []map[string]any) {
 		c.emitRenderedChildren(id, docs, false)
 	}); handled {
+		if err == nil {
+			c.recordOmittedValues(id, omitted)
+		}
 		return err
 	}
 
@@ -323,6 +326,7 @@ func (c *Controller) reconcile(ctx context.Context, hr *manifest.HelmRelease) er
 	c.emitRenderedChildren(id, docs, true)
 
 	c.Store.SetArtifact(id, &store.HelmReleaseArtifact{Manifests: docs, Fingerprint: fp})
+	c.recordOmittedValues(id, omitted)
 	return nil
 }
 

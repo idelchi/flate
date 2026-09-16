@@ -8,6 +8,7 @@ package helmrelease
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/home-operations/flate/pkg/controllers/base"
 	"github.com/home-operations/flate/pkg/depwait"
@@ -37,7 +38,9 @@ import (
 // the accumulated failed-ref drops and the proactive omission are re-applied —
 // the re-applied proactive pass re-evaluates against the now-current store, so
 // a ref that materialized during the wait is correctly kept.
-func (c *Controller) resolvePreRenderValuesFrom(ctx context.Context, id manifest.NamedResource, hr *manifest.HelmRelease) (*manifest.HelmRelease, error) {
+// Omitted ref IDs are returned for reporting after a successful render.
+func (c *Controller) resolvePreRenderValuesFrom(ctx context.Context, id manifest.NamedResource, hr *manifest.HelmRelease) (*manifest.HelmRelease, []manifest.NamedResource, error) {
+	unfiltered := hr
 	// Producer-backed omission runs regardless of the flag: a ref with a
 	// declared producer is dropped, a ref without one is kept (and waited
 	// on below). requireProducer=true is what enforces that asymmetry.
@@ -64,10 +67,11 @@ func (c *Controller) resolvePreRenderValuesFrom(ctx context.Context, id manifest
 					continue
 				}
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		if obj, ok := c.Store.Get[*manifest.HelmRelease](id); ok {
 			hr = obj
+			unfiltered = obj
 		}
 		if len(omittedValuesRefs) > 0 {
 			hr = removeValuesRefs(hr, omittedValuesRefs)
@@ -78,7 +82,17 @@ func (c *Controller) resolvePreRenderValuesFrom(ctx context.Context, id manifest
 		hr = c.omitValuesFrom(hr, nil, true)
 		break
 	}
-	return hr, nil
+	return hr, omittedValuesRefIDs(unfiltered, hr), nil
+}
+
+func (c *Controller) recordOmittedValues(id manifest.NamedResource, refs []manifest.NamedResource) {
+	for _, ref := range refs {
+		c.Store.AddWarning(manifest.Warning{
+			Resource: id,
+			Category: manifest.WarnOmittedValues,
+			Message:  fmt.Sprintf("required valuesFrom %s omitted from offline render", ref),
+		})
+	}
 }
 
 func (c *Controller) omitFailedValuesFrom(hr *manifest.HelmRelease, failed []manifest.NamedResource) (*manifest.HelmRelease, bool) {

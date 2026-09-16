@@ -57,6 +57,9 @@ type Options struct {
 	// doc sets. Every format discloses them in a leading note block so a
 	// one-sided render failure is never mistaken for a wholesale change.
 	Suppressed []Suppression
+	// Notes are render advisories included in the leading note block.
+	// They do not suppress rendered objects.
+	Notes []string
 }
 
 // RenderDocs is the top-level entry point: it compares the two doc sets and
