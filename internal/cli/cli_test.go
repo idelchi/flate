@@ -873,6 +873,108 @@ func TestRun_Diff_OneSidedFailureSuppressed(t *testing.T) {
 	}
 }
 
+func TestRun_Diff_OmittedValues(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		origRef, currentRef   bool
+		optional, present     bool
+		change, strict        bool
+		wantOrig, wantCurrent bool
+		wantCode              int
+	}{
+		{name: "current omitted", currentRef: true, wantCurrent: true},
+		{name: "orig omitted", origRef: true, wantOrig: true},
+		{name: "both omitted", origRef: true, currentRef: true, wantOrig: true, wantCurrent: true},
+		{name: "optional", currentRef: true, optional: true},
+		{name: "present", currentRef: true, present: true},
+		{name: "changed output", currentRef: true, change: true, wantCurrent: true},
+		{name: "without flag", currentRef: true, strict: true, wantCode: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			write := func(ref bool, interval, message string) string {
+				path := writeFixture(t)
+				testutil.WriteFile(t, path, "flux/source.yaml", `apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata: {name: flux-system, namespace: flux-system}
+spec: {url: https://example.test/cluster.git}
+`)
+				testutil.WriteFile(t, path, "charts/demo/Chart.yaml", "apiVersion: v2\nname: demo\nversion: 0.1.0\n")
+				testutil.WriteFile(t, path, "charts/demo/templates/configmap.yaml", `apiVersion: v1
+kind: ConfigMap
+metadata: {name: demo, namespace: apps}
+data:
+  greeting: {{ .Values.greeting | default "hello" }}
+  message: {{ .Values.message }}
+`)
+				refs := ""
+				if ref {
+					optional := "false"
+					if tc.optional {
+						optional = "true"
+					}
+					refs = `  valuesFrom:
+    - kind: ConfigMap
+      name: extra-values
+      optional: ` + optional + "\n"
+				}
+				if tc.present {
+					testutil.WriteFile(t, path, "flux/values.yaml", `apiVersion: v1
+kind: ConfigMap
+metadata: {name: extra-values, namespace: apps}
+data:
+  values.yaml: "greeting: hello\n"
+`)
+				}
+				testutil.WriteFile(t, path, "flux/hr.yaml", `apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: {name: demo, namespace: apps}
+spec:
+  interval: `+interval+`
+  chart:
+    spec:
+      chart: charts/demo
+      sourceRef: {kind: GitRepository, name: flux-system, namespace: flux-system}
+`+refs+`  values: {message: `+message+`}
+`)
+				return path
+			}
+			// Different intervals keep both trees in scope without changing chart output.
+			orig := write(tc.origRef, "5m", "before")
+			message := "before"
+			if tc.change {
+				message = "after"
+			}
+			current := write(tc.currentRef, "10m", message)
+			args := []string{"diff", "hr", "--path", current, "--path-orig", orig, "--output", "diff", "--no-progress"}
+			if !tc.strict {
+				args = append(args, "--allow-missing-secrets")
+			}
+			stdout, stderr, code := runCLI(t, args...)
+			if code != tc.wantCode {
+				t.Fatalf("diff hr exited %d, want %d: stderr=%s", code, tc.wantCode, stderr)
+			}
+			for _, side := range []struct {
+				name string
+				want bool
+			}{
+				{"orig", tc.wantOrig},
+				{"current", tc.wantCurrent},
+			} {
+				note := "# HelmRelease apps/demo: incomplete comparison on the " + side.name + " side (required valuesFrom ConfigMap/apps/extra-values omitted from offline render)"
+				if got := strings.Contains(stdout, note); got != side.want {
+					t.Errorf("%s note present=%v, want %v; stdout:\n%s", side.name, got, side.want, stdout)
+				}
+			}
+			if tc.change && (!strings.Contains(stdout, "-  message: before") || !strings.Contains(stdout, "+  message: after")) {
+				t.Errorf("available changes must remain visible:\n%s", stdout)
+			}
+			if !tc.wantOrig && !tc.wantCurrent && code == 0 && stdout != "" {
+				t.Errorf("complete unchanged comparison should produce no diff; got:\n%s", stdout)
+			}
+		})
+	}
+}
+
 func TestRun_Diff_OneSidedSkipSuppressed(t *testing.T) {
 	for _, tc := range []struct {
 		name       string

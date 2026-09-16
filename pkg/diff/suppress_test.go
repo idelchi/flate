@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"html"
 	"strings"
 	"testing"
 
@@ -171,4 +172,53 @@ func TestRenderDocs_SuppressionHeader(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestRenderDocs_Notes(t *testing.T) {
+	note := "HelmRelease apps/demo: incomplete comparison on the current side (<missing values>)"
+	for _, tc := range []struct {
+		format Format
+		prefix string
+	}{
+		{FormatHuman, "⚠ "},
+		{FormatGitHub, "! "},
+		{FormatGitLab, "# "},
+		{FormatGitea, "! "},
+		{FormatBrief, "⚠ "},
+		{FormatDiff, "# "},
+		{FormatHTML, ""},
+	} {
+		t.Run(string(tc.format), func(t *testing.T) {
+			for _, changed := range []bool{false, true} {
+				left := []Doc{cmDoc(hrParent, "demo", "apps", "before", "")}
+				right := left
+				if changed {
+					right = []Doc{cmDoc(hrParent, "demo", "apps", "after", "")}
+				}
+				out, err := RenderDocs(left, right, Options{Format: tc.format, Notes: []string{note}})
+				if err != nil {
+					t.Fatalf("render: %v", err)
+				}
+				s := string(out)
+				if tc.format == FormatHTML {
+					if !strings.Contains(s, html.EscapeString(note)) || strings.Contains(s, "<missing values>") {
+						t.Errorf("HTML must contain the escaped note; got:\n%s", s)
+					}
+				} else if !strings.HasPrefix(s, tc.prefix+note+"\n") {
+					t.Errorf("output must lead with the note; got:\n%s", s)
+				}
+				if changed {
+					want := []string{"before", "after"}
+					if tc.format == FormatBrief {
+						want = []string{"one change detected"}
+					}
+					for _, text := range want {
+						if !strings.Contains(s, text) {
+							t.Errorf("available change missing %q; got:\n%s", text, s)
+						}
+					}
+				}
+			}
+		})
+	}
 }

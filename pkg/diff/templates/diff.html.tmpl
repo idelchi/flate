@@ -237,7 +237,7 @@ tr.folded { display: none; }
   </nav>
   <div class="splitter" id="splitter"></div>
   <main class="content">
-    {{range .Suppressed}}<div class="suppressed">&#9888; {{.}}</div>
+    {{range .Notes}}<div class="suppressed">&#9888; {{.}}</div>
     {{end}}<div class="placeholder" id="placeholder">Select a resource from the tree to view its diff.</div>
     {{range $res := .Resources}}
     <section class="resource" id="{{$res.ID}}">

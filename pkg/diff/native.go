@@ -38,7 +38,7 @@ func renderNative(left, right []Doc, opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return withHeader(suppressionHeader(opts, notePrefix(style)), body), nil
+	return withHeader(notesHeader(opts, notePrefix(style)), body), nil
 }
 
 // multiDocInput marshals a doc set into a single multi-document YAML

@@ -37,6 +37,9 @@ const (
 	// WarnStaleValues: a HelmRelease sets top-level values no chart template
 	// references (#744). Detail = the unused keys.
 	WarnStaleValues = "StaleValues"
+	// WarnOmittedValues: a required HelmRelease valuesFrom reference could
+	// not be read offline and was omitted from the render.
+	WarnOmittedValues = "OmittedValues"
 	// WarnEmptyScan: no Flux Kustomization/HelmRelease objects were found under
 	// --path (likely a wrong path). Render-global.
 	WarnEmptyScan = "EmptyScan"

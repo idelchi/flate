@@ -379,6 +379,26 @@ data:
 	if got := renderedConfigMapValue(art.Manifests, "fallback"); got != "fallback" {
 		t.Fatalf("rendered fallback = %q, want fallback", got)
 	}
+	warnings := st.Warnings()
+	wantRefs := []string{"ConfigMap/default/runtime-values", "Secret/default/app-values"}
+	if len(warnings) != len(wantRefs) {
+		t.Fatalf("warnings = %+v, want one per omitted reference", warnings)
+	}
+	for i, ref := range wantRefs {
+		w := warnings[i]
+		if w.Resource != hr.Named() || w.Category != manifest.WarnOmittedValues ||
+			w.Message != "required valuesFrom "+ref+" omitted from offline render" {
+			t.Errorf("warning = %+v, want omitted valuesFrom %s", w, ref)
+		}
+	}
+	if info := dispatchToFixpoint(t, c, st, hr.Named()); info.Status != store.StatusReady {
+		t.Fatalf("cached render status = %+v, want StatusReady", info)
+	}
+	for _, w := range st.Warnings() {
+		if w.Count != 2 {
+			t.Errorf("cached render must record the omitted reference: %+v", w)
+		}
+	}
 }
 
 // Without --allow-missing-secrets, a valuesFrom Secret whose only declaration
@@ -444,6 +464,14 @@ data:
 	}
 	if got := renderedConfigMapValue(art.Manifests, "fallback"); got != "fallback" {
 		t.Fatalf("rendered fallback = %q, want fallback", got)
+	}
+	warnings := st.Warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %+v, want one omitted reference", warnings)
+	}
+	if w := warnings[0]; w.Resource != hr.Named() || w.Category != manifest.WarnOmittedValues ||
+		w.Message != "required valuesFrom Secret/default/app-values omitted from offline render" {
+		t.Errorf("warning = %+v, want omitted valuesFrom Secret/default/app-values", w)
 	}
 }
 
